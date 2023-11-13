@@ -1,11 +1,9 @@
 //! Contains a [`RuleSet`] for allowing time-related syscalls, but check the comments for why you
 //! probably don't actually need to enable them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use syscalls::Sysno;
-
-use crate::{SeccompRule, RuleSet};
+use crate::{RuleSet, Sysno};
 
 #[must_use]
 /// Enable syscalls related to time.
@@ -34,17 +32,12 @@ impl Time {
     }
 }
 
-impl RuleSet for Time {
-    fn simple_rules(&self) -> Vec<Sysno> {
-        self.allowed.iter().copied().collect()
-    }
-
-    fn conditional_rules(&self) -> HashMap<Sysno, Vec<SeccompRule>> {
-        HashMap::new()
+impl RuleSet<HashSet<Sysno>> for Time {
+    fn simple_rules(&self) -> HashSet<Sysno> {
+        self.allowed.clone()
     }
 
     fn name(&self) -> &'static str {
         "Time"
     }
 }
-

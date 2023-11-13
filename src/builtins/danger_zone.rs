@@ -2,9 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use syscalls::Sysno;
-
-use crate::{SeccompRule, RuleSet};
+use crate::{SeccompRule, RuleSet, Sysno};
 
 use super::YesReally;
 
@@ -52,9 +50,9 @@ impl Threads {
     }
 }
 
-impl RuleSet for Threads {
-    fn simple_rules(&self) -> Vec<Sysno> {
-        self.allowed.iter().copied().collect()
+impl RuleSet<HashSet<Sysno>> for Threads {
+    fn simple_rules(&self) -> HashSet<Sysno> {
+        self.allowed.clone()
     }
 
     fn conditional_rules(&self) -> HashMap<Sysno, Vec<SeccompRule>> {
@@ -81,6 +79,24 @@ impl RuleSet for Threads {
     }
 }
 
+#[cfg(not(target_env = "musl"))]
+type ForkAndExecSyscalls = [ Sysno; 8 ];
+#[cfg(target_env = "musl")]
+type ForkAndExecSyscalls = [ Sysno; 10 ];
+
+const FORK_AND_EXEC_SYSCALLS: ForkAndExecSyscalls = [
+    Sysno::fork, Sysno::vfork,
+    Sysno::execve, Sysno::execveat,
+    Sysno::wait4, Sysno::waitid,
+    Sysno::clone, Sysno::clone3,
+    // musl creates a pipe when it starts a new process,
+    // and fails the operation if it can't create the pipe
+    #[cfg(target_env = "musl")]
+    Sysno::pipe,
+    #[cfg(target_env = "musl")]
+    Sysno::pipe2,
+];
+
 /// [`ForkAndExec`] is in the danger zone because it can be used to start another process,
 /// including more privileged ones. That process will still be under seccomp's restrictions (see
 /// `tests/inherit_filters.rs`) but depending on your filter it could still do bad things.
@@ -88,22 +104,9 @@ impl RuleSet for Threads {
 /// Note that this also allows the `clone` syscall.
 #[must_use]
 pub struct ForkAndExec;
-impl RuleSet for ForkAndExec {
-    fn simple_rules(&self) -> Vec<Sysno> {
-        let mut rules = vec![
-             Sysno::fork, Sysno::vfork,
-             Sysno::execve, Sysno::execveat,
-             Sysno::wait4, Sysno::waitid,
-             Sysno::clone, Sysno::clone3,
-        ];
-
-        // musl creates a pipe when it starts a new process, and fails the operation if it can't
-        // create the pipe
-        if cfg!(target_env = "musl") {
-            rules.extend([Sysno::pipe, Sysno::pipe2]);
-        }
-
-        rules
+impl RuleSet<ForkAndExecSyscalls> for ForkAndExec {
+    fn simple_rules(&self) -> ForkAndExecSyscalls {
+        FORK_AND_EXEC_SYSCALLS
     }
 
     fn conditional_rules(&self) -> HashMap<Sysno, Vec<SeccompRule>> {

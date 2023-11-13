@@ -242,9 +242,9 @@ impl SystemIO {
     }
 }
 
-impl RuleSet for SystemIO {
-    fn simple_rules(&self) -> Vec<syscalls::Sysno> {
-        self.allowed.iter().copied().collect()
+impl RuleSet<HashSet<Sysno>> for SystemIO {
+    fn simple_rules(&self) -> HashSet<Sysno> {
+        self.allowed.clone()
     }
 
     fn conditional_rules(&self) -> HashMap<syscalls::Sysno, Vec<SeccompRule>> {

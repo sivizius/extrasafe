@@ -13,6 +13,14 @@
 //! See the [`SafetyContext`] struct's documentation and the tests/ and examples/ directories for
 //! more information on how to use it.
 
+#[macro_use]
+pub mod macros;
+
+pub mod builtins;
+pub mod error;
+
+#[cfg(feature = "landlock")]
+mod landlock;
 
 // Filter is the entire, top-level seccomp filter chain. All SeccompilerRules are or-ed together.
 //  Vec<(i64, Vec<SeccompilerRule>)>, Vec is empty if Rule has no filters.
@@ -20,33 +28,34 @@
 // single Rule.
 // ArgumentFilter is a single condition on a single argument
 // Comparator is used in an ArgumentFilter to choose the comparison operation
-pub use seccompiler::SeccompFilter as SeccompilerFilter;
-pub use seccompiler::SeccompRule as SeccompilerRule;
-pub use seccompiler::SeccompCondition as SeccompilerArgumentFilter;
-pub use seccompiler::Error as SeccompilerError;
-pub use seccompiler::SeccompCmpOp as SeccompilerComparator;
-
-use seccompiler::SeccompAction;
-
-pub use syscalls;
-
-pub mod error;
-pub use error::*;
-
-#[macro_use]
-pub mod macros;
-pub use macros::*;
-
-pub mod builtins;
+pub use {
+    seccompiler::{
+        SeccompFilter as SeccompilerFilter,
+        SeccompRule as SeccompilerRule,
+        SeccompCondition as SeccompilerArgumentFilter,
+        Error as SeccompilerError,
+        SeccompCmpOp as SeccompilerComparator,
+    },
+    syscalls::Sysno,
+    self::{
+        error::*,
+        macros::*,
+    },
+};
 
 #[cfg(feature = "landlock")]
-mod landlock;
-#[cfg(feature = "landlock")]
-pub use landlock::*;
+pub use self::landlock::*;
 
-#[cfg(feature = "landlock")]
-use std::path::PathBuf;
-use std::collections::{BTreeMap, HashMap};
+#[cfg(not(feature = "landlock"))]
+type LandlockRule = ();
+
+use {
+    seccompiler::SeccompAction,
+    std::{
+        borrow::Cow,
+        collections::{BTreeMap, HashMap},
+    },
+};
 
 #[derive(Debug, Clone, PartialEq)]
 /// A restriction on the arguments of a syscall. May be combined with other
@@ -134,7 +143,7 @@ impl SeccompArgumentFilter {
 /// A seccomp rule.
 pub struct SeccompRule {
     /// The syscall being filtered
-    pub syscall: syscalls::Sysno,
+    pub syscall: Sysno,
     /// Filters on the syscall's arguments. The SeccompRule allows the syscall if all argument
     /// filters evaluate to true.
     pub argument_filters: Vec<SeccompArgumentFilter>,
@@ -142,7 +151,7 @@ pub struct SeccompRule {
 
 impl SeccompRule {
     /// Constructs a new [`SeccompRule`] that unconditionally allows the given syscall.
-    pub fn new(syscall: syscalls::Sysno) -> SeccompRule {
+    pub fn new(syscall: Sysno) -> SeccompRule {
         SeccompRule {
             syscall,
             argument_filters: Vec::new(),
@@ -174,49 +183,72 @@ impl SeccompRule {
 
 #[derive(Debug, Clone)]
 /// A [`SeccompRule`] labeled with the name of the [`RuleSet`] it originated from. Internal-only.
-struct LabeledSeccompRule(pub &'static str, pub SeccompRule);
+struct LabeledSeccompRule {
+    pub name: Cow<'static, str>,
+    pub rule: SeccompRule,
+}
 
 /// A [`RuleSet`] is a collection of [`SeccompRule`] and `LandlockRule` s that enable a
 /// functionality, such as opening files or starting threads.
-pub trait RuleSet {
+pub trait RuleSet<
+    S = Vec<Sysno>,
+    C = HashMap<Sysno, Vec<SeccompRule>>,
+    N = &'static str,
+    L = Vec<LandlockRule>,
+>
+where
+    S: IntoIterator<Item = Sysno>,
+    C: IntoIterator<Item = (Sysno, Vec<SeccompRule>)> + Default,
+    N: Into<Cow<'static, str>>,
+    L: IntoIterator<Item = LandlockRule> + Default,
+{
     /// A simple rule is a seccomp rule that just allows the syscall without restriction.
-    fn simple_rules(&self) -> Vec<syscalls::Sysno>;
+    fn simple_rules(&self) -> S;
 
     /// A conditional rule is a seccomp rule that uses a condition to restrict the syscall, e.g. only
     /// specific flags as parameters.
-    fn conditional_rules(&self) -> HashMap<syscalls::Sysno, Vec<SeccompRule>>;
+    fn conditional_rules(&self) -> C {
+        C::default()
+    }
 
     /// The name of the profile.
-    fn name(&self) -> &'static str;
+    fn name(&self) -> N;
 
     #[cfg(feature = "landlock")]
     /// A landlock rule is a pair of an access control (e.g. read/write access, directory creation
     /// access) and a directory or path.
-    fn landlock_rules(&self) -> Vec<LandlockRule> {
-        Vec::new()
+    fn landlock_rules(&self) -> L {
+        L::default()
     }
 }
 
-impl<T: ?Sized + RuleSet> RuleSet for &T {
+impl<R, S, C, N, L> RuleSet<S, C, N, L> for &R
+where
+    R: ?Sized + RuleSet<S, C, N, L>,
+    S: IntoIterator<Item = Sysno>,
+    C: IntoIterator<Item = (Sysno, Vec<SeccompRule>)> + Default,
+    N: Into<Cow<'static, str>>,
+    L: IntoIterator<Item = LandlockRule> + Default,
+{
     #[inline]
-    fn simple_rules(&self) -> Vec<syscalls::Sysno> {
-        T::simple_rules(self)
+    fn simple_rules(&self) -> S {
+        R::simple_rules(self)
     }
 
     #[inline]
-    fn conditional_rules(&self) -> HashMap<syscalls::Sysno, Vec<SeccompRule>> {
-        T::conditional_rules(self)
+    fn conditional_rules(&self) -> C {
+        R::conditional_rules(self)
     }
 
     #[inline]
-    fn name(&self) -> &'static str {
-        T::name(self)
+    fn name(&self) -> N {
+        R::name(self)
     }
 
     #[cfg(feature = "landlock")]
     #[inline]
-    fn landlock_rules(&self) -> Vec<LandlockRule> {
-        T::landlock_rules(self)
+    fn landlock_rules(&self) -> L {
+        R::landlock_rules(self)
     }
 }
 
@@ -230,11 +262,11 @@ impl<T: ?Sized + RuleSet> RuleSet for &T {
 #[derive(Debug)]
 pub struct SafetyContext {
     /// A mapping from a syscall to either be a single simple rule or multiple conditional rules, but not both.
-    seccomp_rules: HashMap<syscalls::Sysno, Vec<LabeledSeccompRule>>,
+    seccomp_rules: HashMap<Sysno, Vec<LabeledSeccompRule>>,
     #[cfg(feature = "landlock")]
     /// A mapping from filesystem paths to [`LandlockRule`]s specifying files and directories with
     /// the operations that can be performed on them.
-    landlock_rules: HashMap<PathBuf, LabeledLandlockRule>,
+    landlock_rules: HashMap<std::path::PathBuf, LabeledLandlockRule>,
     /// The errno returned when a syscall does not match one of the seccomp rules. Defaults to 1.
     errno: u32,
     /// Flag to apply seccomp to all threads rather than just the current thread. Defaults to
@@ -270,9 +302,16 @@ impl SafetyContext {
 
     /// Gather unconditional and conditional seccomp rules to be provided to the seccomp context.
     #[allow(clippy::needless_pass_by_value)]
-    fn gather_rules<R: RuleSet>(rules: R) -> Vec<SeccompRule> {
+    fn gather_rules<R, S, C, N, L>(rules: R) -> Vec<SeccompRule>
+    where
+        R: RuleSet<S, C, N, L>,
+        S: IntoIterator<Item = Sysno>,
+        C: IntoIterator<Item = (Sysno, Vec<SeccompRule>)> + Default,
+        N: Into<Cow<'static, str>>,
+        L: IntoIterator<Item = LandlockRule> + Default,
+    {
         let base_syscalls = rules.simple_rules();
-        let mut rules = rules.conditional_rules();
+        let mut rules = <HashMap<Sysno, Vec<SeccompRule>>>::from_iter(rules.conditional_rules());
         for syscall in base_syscalls {
             let rule = SeccompRule::new(syscall);
             rules.entry(syscall)
@@ -289,7 +328,14 @@ impl SafetyContext {
     /// # Errors
     /// Will return [`ExtraSafeError::ConditionalNoEffectError`] if a conditional rule is enabled at
     /// the same time as a simple rule for a syscall, which would override the conditional rule.
-    pub fn enable<R: RuleSet>(mut self, policy: R) -> Result<SafetyContext, ExtraSafeError> {
+    pub fn enable<R, S, C, N, L>(mut self, policy: R) -> Result<SafetyContext, ExtraSafeError>
+    where
+        R: RuleSet<S, C, N, L>,
+        S: IntoIterator<Item = Sysno>,
+        C: IntoIterator<Item = (Sysno, Vec<SeccompRule>)> + Default,
+        N: Into<Cow<'static, str>>,
+        L: IntoIterator<Item = LandlockRule> + Default,
+    {
         #[cfg(feature = "landlock")]
         self.enable_landlock_rules(&policy)?;
 
@@ -299,14 +345,21 @@ impl SafetyContext {
     }
 
     #[cfg(feature = "landlock")]
-    fn enable_landlock_rules<R: RuleSet>(&mut self, policy: &R) -> Result<(), ExtraSafeError> {
-        let name = policy.name();
+    fn enable_landlock_rules<R, S, C, N, L>(&mut self, policy: &R) -> Result<(), ExtraSafeError>
+    where
+        R: RuleSet<S, C, N, L>,
+        S: IntoIterator<Item = Sysno>,
+        C: IntoIterator<Item = (Sysno, Vec<SeccompRule>)> + Default,
+        N: Into<Cow<'static, str>>,
+        L: IntoIterator<Item = LandlockRule> + Default,
+    {
+        let policy_name = policy.name().into();
         let rules = policy.landlock_rules().into_iter()
-            .map(|rule| (rule.path.clone(), LabeledLandlockRule(name, rule)));
+            .map(|rule| (rule.path.clone(), LabeledLandlockRule { name: policy_name.clone(), rule }));
 
         for (path, labeled_rule) in rules {
             if let Some(existing_rule) = self.landlock_rules.get(&path) {
-                return Err(ExtraSafeError::DuplicatePath(path.clone(), existing_rule.0, labeled_rule.0));
+                return Err(ExtraSafeError::DuplicatePath(path.clone(), existing_rule.name.clone(), labeled_rule.name));
             }
             // value here is always none because we checked above that we're not inserting a path
             // that already exists
@@ -315,19 +368,26 @@ impl SafetyContext {
         Ok(())
     }
 
-    fn enable_seccomp_rules<R: RuleSet>(&mut self, policy: R) -> Result<(), ExtraSafeError> {
-        let policy_name = policy.name();
+    fn enable_seccomp_rules<R, S, C, N, L>(&mut self, policy: R) -> Result<(), ExtraSafeError>
+    where
+        R: RuleSet<S, C, N, L>,
+        S: IntoIterator<Item = Sysno>,
+        C: IntoIterator<Item = (Sysno, Vec<SeccompRule>)> + Default,
+        N: Into<Cow<'static, str>>,
+        L: IntoIterator<Item = LandlockRule> + Default,
+    {
+        let policy_name = policy.name().into();
         let new_rules = SafetyContext::gather_rules(policy)
             .into_iter()
-            .map(|rule| LabeledSeccompRule(policy_name, rule));
+            .map(|rule| LabeledSeccompRule { name: policy_name.clone(), rule });
 
         for labeled_new_rule in new_rules {
-            let new_rule = &labeled_new_rule.1;
+            let new_rule = &labeled_new_rule.rule;
             let syscall = &new_rule.syscall;
 
             if let Some(existing_rules) = self.seccomp_rules.get(syscall) {
                 for labeled_existing_rule in existing_rules {
-                    let existing_rule = &labeled_existing_rule.1;
+                    let existing_rule = &labeled_existing_rule.rule;
 
                     let new_is_simple = new_rule.argument_filters.is_empty();
                     let existing_is_simple = existing_rule.argument_filters.is_empty();
@@ -337,15 +397,15 @@ impl SafetyContext {
                     if new_is_simple && !existing_is_simple {
                         return Err(ExtraSafeError::ConditionalNoEffectError(
                             new_rule.syscall,
-                            labeled_existing_rule.0,
-                            labeled_new_rule.0,
+                            labeled_existing_rule.name.clone(),
+                            labeled_new_rule.name,
                         ));
                     }
                     else if !new_is_simple && existing_is_simple {
                         return Err(ExtraSafeError::ConditionalNoEffectError(
                             new_rule.syscall,
-                            labeled_new_rule.0,
-                            labeled_existing_rule.0,
+                            labeled_new_rule.name,
+                            labeled_existing_rule.name.clone(),
                         ));
                     }
                     // otherwise, they're either both conditional rules or both simple rules,
@@ -401,7 +461,7 @@ impl SafetyContext {
     // #[cfg(feature = "landlock")]
     // // TODO: there doesn't seem to be anything in the official documentation about this?
     // // this definitely isn't exhaustive
-    // fn landlock_restricted_syscalls() -> Vec<syscalls::Sysno> {
+    // fn landlock_restricted_syscalls() -> Vec<Sysno> {
     //     let mut syscalls = Vec::new();
     //     syscalls.extend(builtins::systemio::IO_OPEN_SYSCALLS);
     //     syscalls.extend(builtins::systemio::IO_METADATA_SYSCALLS);
@@ -500,7 +560,7 @@ impl SafetyContext {
             let syscall = syscall.id().into();
 
             let mut seccompiler_rules = Vec::new();
-            for LabeledSeccompRule(_origin, rule) in labeled_rules {
+            for LabeledSeccompRule { rule, .. } in labeled_rules {
                 // If there are conditional rules, insert them to the vec
                 if let Some(seccompiler_rule) = rule.into_seccompiler()? {
                     seccompiler_rules.push(seccompiler_rule);
@@ -542,7 +602,7 @@ impl SafetyContext {
 	    .handle_access(AccessFs::from_all(abi))?
 	    .create()?;
 
-        for LabeledLandlockRule(_policy_name, rule) in self.landlock_rules.values() {
+        for LabeledLandlockRule { rule, .. } in self.landlock_rules.values() {
             // If path does not exist or is not accessible, just ignore it
             if let Ok(fd) = PathFd::new(rule.path.clone()) {
                 let path_beneath = PathBeneath::new(fd, rule.access_rules);

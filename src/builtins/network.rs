@@ -2,10 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use syscalls::Sysno;
-
 use super::YesReally;
-use crate::{SeccompRule, RuleSet};
+use crate::{SeccompRule, RuleSet, Sysno};
 
 // TODO: make bind calls conditional on the DGRAM/UNIX/STREAM flag in each function
 
@@ -205,7 +203,7 @@ impl Networking {
         self.custom.entry(Sysno::socket)
             .or_insert_with(Vec::new)
             .push(rule);
-        
+
         self.allowed.extend(&[Sysno::connect]);
         self.allowed.extend(NET_IO_SYSCALLS);
         self.allowed.extend(NET_READ_SYSCALLS);
@@ -285,9 +283,9 @@ impl Networking {
     }
 }
 
-impl RuleSet for Networking {
-    fn simple_rules(&self) -> Vec<syscalls::Sysno> {
-        self.allowed.iter().copied().collect()
+impl RuleSet<HashSet<Sysno>> for Networking {
+    fn simple_rules(&self) -> HashSet<Sysno> {
+        self.allowed.clone()
     }
 
     fn conditional_rules(&self) -> HashMap<syscalls::Sysno, Vec<SeccompRule>> {

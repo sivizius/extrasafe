@@ -2,10 +2,15 @@
 
 //! Contains landlock-specific types
 
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf}
+};
 
-pub use landlock::RulesetError as LandlockError;
-pub use landlock::{ABI, Access, AccessFs, BitFlags, Compatible, CompatLevel, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr};
+pub use landlock::{
+    RulesetError as LandlockError, ABI, Access, AccessFs, BitFlags, Compatible, CompatLevel,
+    PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr
+};
 
 /// A Landlock rule. It consists of a path and a collection of access rights which determine what
 /// actions can be performed on that path.
@@ -30,7 +35,10 @@ impl LandlockRule {
 
 /// A [`LandlockRule`] labeled with the name of the [`RuleSet`] it originated from. Internal-only.
 #[derive(Debug)]
-pub(crate) struct LabeledLandlockRule(pub &'static str, pub LandlockRule);
+pub(crate) struct LabeledLandlockRule {
+    pub name: Cow<'static, str>,
+    pub rule: LandlockRule,
+}
 
 /// Helper functions for Landlock access rights
 pub mod access {
