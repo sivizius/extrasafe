@@ -170,7 +170,7 @@ pub mod user_id;
 pub use self::{
     basic::BasicCapabilities,
     kill::Kill,
-    network::Networking,
+    network::{Netlink, Networking},
     systemio::SystemIO,
     time::Time,
     truncate::Truncate,
