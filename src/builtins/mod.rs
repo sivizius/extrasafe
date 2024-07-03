@@ -8,7 +8,10 @@ pub mod systemio;
 pub mod time;
 
 pub use self::{
-    basic::BasicCapabilities, network::{Networking, Netlink}, systemio::SystemIO, time::Time,
+    basic::BasicCapabilities,
+    network::{Networking, Netlink, SocketPair},
+    systemio::SystemIO,
+    time::Time,
 };
 
 /// A struct whose purpose is to make you read the documentation for the function you're calling.
