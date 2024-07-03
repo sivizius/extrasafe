@@ -6,7 +6,8 @@
 /// failure propagates to the cli
 fn seccomp_active_tests_fail() {
     let res = extrasafe::SafetyContext::new()
-        .enable(extrasafe::builtins::BasicCapabilities).unwrap()
+        .enable(extrasafe::builtins::BasicCapabilities)
+        .unwrap()
         .apply_to_current_thread();
     assert!(res.is_ok(), "Extrasafe failed {:?}", res.unwrap_err());
 

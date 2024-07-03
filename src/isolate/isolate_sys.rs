@@ -12,12 +12,12 @@
 //! - `run_isolate` unpacks the config data and uses it to set up a new tmpfs and bindmounts inside it, then does `pivot_root` into the tmpfs.
 //! - Finally, `run_isolate` calls `func` and then exits when it's done.
 #![allow(unsafe_code)]
-use std::path::{Path, PathBuf};
-use std::fs::File;
-use std::ffi::CString;
 use super::IsolateError;
+use std::ffi::CString;
+use std::fs::File;
 use std::io::Write;
 use std::os::fd::FromRawFd;
+use std::path::{Path, PathBuf};
 
 use std::collections::HashMap;
 
@@ -34,7 +34,7 @@ macro_rules! fail_negative {
             let msg = format!("{}: {}", $message, err);
             panic!("{}", msg);
         }
-    }
+    };
 }
 
 /// Panic if the first parameter passed is a null pointer. The provided message and the error
@@ -46,15 +46,14 @@ macro_rules! fail_null {
             let msg = format!("{}: {}", $message, err);
             panic!("{}", msg);
         }
-    }
+    };
 }
 
 /// Check rc for negative return code and create `std::io::Error`
 fn check_err(retcode: i32) -> std::io::Result<()> {
     if retcode >= 0 {
         std::io::Result::Ok(())
-    }
-    else {
+    } else {
         std::io::Result::Err(std::io::Error::last_os_error())
     }
 }
@@ -81,7 +80,13 @@ pub struct IsolateConfigData {
 }
 
 impl IsolateConfigData {
-    pub fn new(isolate_name: &'static str, bindmounts: HashMap<PathBuf, PathBuf>, func: fn() -> (), root_fs_size: u32, tempdir: PathBuf) -> IsolateConfigData {
+    pub fn new(
+        isolate_name: &'static str,
+        bindmounts: HashMap<PathBuf, PathBuf>,
+        func: fn() -> (),
+        root_fs_size: u32,
+        tempdir: PathBuf,
+    ) -> IsolateConfigData {
         let parent_user = unsafe { libc::geteuid() };
         let parent_group = unsafe { libc::getegid() };
         IsolateConfigData {
@@ -91,7 +96,7 @@ impl IsolateConfigData {
             root_fs_size,
             parent_user,
             parent_group,
-            tempdir
+            tempdir,
         }
     }
 }
@@ -102,8 +107,7 @@ impl IsolateConfigData {
 fn map_user_to_root(parent_user: libc::uid_t, parent_group: libc::gid_t) {
     std::fs::write("/proc/self/uid_map", format!("0 {parent_user} 1\n"))
         .expect("failed to map child id");
-    std::fs::write("/proc/self/setgroups", "deny\n")
-        .expect("failed to enable child group mapping");
+    std::fs::write("/proc/self/setgroups", "deny\n").expect("failed to enable child group mapping");
     std::fs::write("/proc/self/gid_map", format!("0 {parent_group} 1\n"))
         .expect("failed to map child gid");
 }
@@ -114,7 +118,7 @@ extern "C" fn run_isolate(data: *mut libc::c_void) -> i32 {
     // syscall. All heap pointers are still valid, they just point to a new copy of the data.
     let dataptr: *mut IsolateConfigData = data.cast::<IsolateConfigData>();
     let config_data = unsafe { Box::from_raw(dataptr) };
-    
+
     let isolate_name_cstr = CString::new(config_data.isolate_name)
         .expect("please don't put null bytes in your isolate name");
     let cstr_ptr = isolate_name_cstr.as_ptr();
@@ -137,7 +141,10 @@ extern "C" fn run_isolate(data: *mut libc::c_void) -> i32 {
 /// Make a tempdir in /tmp in which to mount our private tmpfs where the isolate will eventually
 /// live
 pub fn make_tempdir(isolate_name: &str) -> PathBuf {
-    assert!(isolate_name.is_ascii(), "tmpdir template name must be ascii");
+    assert!(
+        isolate_name.is_ascii(),
+        "tmpdir template name must be ascii"
+    );
 
     let template_str = format!("/tmp/{}.XXXXXX\0", isolate_name);
     let mut dir_buf: Vec<u8> = template_str.clone().into_bytes();
@@ -148,9 +155,8 @@ pub fn make_tempdir(isolate_name: &str) -> PathBuf {
 
     // remove null byte
     let _ = dir_buf.pop();
-    let dir = String::from_utf8(dir_buf)
-        .expect("mkdtemp template string should always be utf8");
-    
+    let dir = String::from_utf8(dir_buf).expect("mkdtemp template string should always be utf8");
+
     PathBuf::from(dir)
 }
 
@@ -160,20 +166,28 @@ fn mount_tmpfs(tempdir: &Path, max_size: u32) {
     let tmp_cstr = CString::new("tmpfs").unwrap();
     let options = CString::new(format!("size={}m", max_size)).unwrap();
     let options_ptr: *const libc::c_void = options.as_ptr().cast::<libc::c_void>();
-    let rc = unsafe { libc::mount(tmp_cstr.as_ptr(),
-                                   tmp_dircstr.as_ptr(),
-                                   tmp_cstr.as_ptr(),
-                                   0,
-                                   options_ptr) };
+    let rc = unsafe {
+        libc::mount(
+            tmp_cstr.as_ptr(),
+            tmp_dircstr.as_ptr(),
+            tmp_cstr.as_ptr(),
+            0,
+            options_ptr,
+        )
+    };
     fail_negative!(rc, "failed to mount tmpfs after clone");
 
     // make sure the mount is private
     let empty_cstr = CString::new("").unwrap();
-    let rc = unsafe { libc::mount(empty_cstr.as_ptr(),
-                                   tmp_dircstr.as_ptr(),
-                                   empty_cstr.as_ptr(),
-                                   libc::MS_REC | libc::MS_PRIVATE,
-                                   std::ptr::null()) };
+    let rc = unsafe {
+        libc::mount(
+            empty_cstr.as_ptr(),
+            tmp_dircstr.as_ptr(),
+            empty_cstr.as_ptr(),
+            libc::MS_REC | libc::MS_PRIVATE,
+            std::ptr::null(),
+        )
+    };
     fail_negative!(rc, "failed to make tmpfs private after mounting");
 }
 
@@ -186,37 +200,64 @@ fn do_bindmount(root: &Path, src: &Path, dst: &Path) {
     // in general but I'm not sure if you could actually do anything "bad" with it that you
     // couldn't do if an attacker otherwise controlled a dst path.
     for a in dst.ancestors() {
-        assert!(!a.ends_with("."), "bindmount dst directory must not contain . paths: {}", dst.display());
-        assert!(!a.ends_with(".."), "bindmount dst directory must not contain .. paths: {}", dst.display());
+        assert!(
+            !a.ends_with("."),
+            "bindmount dst directory must not contain . paths: {}",
+            dst.display()
+        );
+        assert!(
+            !a.ends_with(".."),
+            "bindmount dst directory must not contain .. paths: {}",
+            dst.display()
+        );
     }
 
-    let dst = if dst.is_absolute() { dst.strip_prefix("/").unwrap() } else { dst };
+    let dst = if dst.is_absolute() {
+        dst.strip_prefix("/").unwrap()
+    } else {
+        dst
+    };
     let dst = root.join(dst);
 
     // if directory, create all directories
     // else if file, socket, etc., create all parent directories and make empty file to bindmount
     // on to.
     if src.is_dir() {
-        std::fs::create_dir_all(&dst)
-            .unwrap_or_else(|_| panic!("failed to create dst directory (or parent directories) when bindmounting {}", dst.display()));
-    }
-    else {
+        std::fs::create_dir_all(&dst).unwrap_or_else(|_| {
+            panic!(
+                "failed to create dst directory (or parent directories) when bindmounting {}",
+                dst.display()
+            )
+        });
+    } else {
         if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)
-                .unwrap_or_else(|_| panic!("failed to create parent directories when bindmounting {}", dst.display()));
+            std::fs::create_dir_all(parent).unwrap_or_else(|_| {
+                panic!(
+                    "failed to create parent directories when bindmounting {}",
+                    dst.display()
+                )
+            });
         }
-        drop(File::create(&dst)
-            .unwrap_or_else(|_| panic!("failed to create empty file when bindmounting {}", dst.display())));
+        drop(File::create(&dst).unwrap_or_else(|_| {
+            panic!(
+                "failed to create empty file when bindmounting {}",
+                dst.display()
+            )
+        }));
     }
 
     let src_dircstr = CString::new(src.as_os_str().as_encoded_bytes()).unwrap();
     let dst_dircstr = CString::new(dst.as_os_str().as_encoded_bytes()).unwrap();
     let bind_cstr = CString::new("bind").unwrap();
-    let rc = unsafe { libc::mount(src_dircstr.as_ptr(),
-                                   dst_dircstr.as_ptr(),
-                                   bind_cstr.as_ptr(),
-                                   libc::MS_REC | libc::MS_BIND,
-                                   std::ptr::null()) };
+    let rc = unsafe {
+        libc::mount(
+            src_dircstr.as_ptr(),
+            dst_dircstr.as_ptr(),
+            bind_cstr.as_ptr(),
+            libc::MS_REC | libc::MS_BIND,
+            std::ptr::null(),
+        )
+    };
     fail_negative!(rc, format!("failed to bindmount. do you have permissions for the src directory? dst must also exist! (it should be an empty file or directory)\nsrc: {:?}, dst: {:?}", src, dst));
 }
 
@@ -231,7 +272,10 @@ fn do_pivot_root(tmpfs: &Path) {
     let curdir_cstr = CString::new(".").unwrap();
     let curdir_ptr = curdir_cstr.as_ptr();
     let rc = unsafe { libc::syscall(libc::SYS_pivot_root, curdir_ptr, curdir_ptr) };
-    fail_negative!(rc, format!("failed to pivot_root . . into {}", tmpfs.display()));
+    fail_negative!(
+        rc,
+        format!("failed to pivot_root . . into {}", tmpfs.display())
+    );
 
     // now unmount old / with MNT_DETACH
     let rc = unsafe { libc::umount2(curdir_ptr, libc::MNT_DETACH) };
@@ -242,30 +286,38 @@ pub fn create_memfd_from_self_exe() -> Result<File, IsolateError> {
     // Per the memfd_open manpage, multiple memfds can have the same name without issue.
     let memfd_name = CString::new("isolate_memfd").unwrap();
 
-    let exe_data = std::fs::read("/proc/self/exe")
-        .map_err(IsolateError::MemFd)?;
+    let exe_data = std::fs::read("/proc/self/exe").map_err(IsolateError::MemFd)?;
     let exe_bytes = &exe_data;
     let fsize = exe_bytes.len() as u64;
     let memfd = unsafe { libc::memfd_create(memfd_name.as_ptr(), 0) };
-    check_err(memfd)
-        .map_err(IsolateError::MemFd)?;
+    check_err(memfd).map_err(IsolateError::MemFd)?;
     let mut memfd_file = unsafe { std::fs::File::from_raw_fd(memfd) };
     memfd_file.set_len(fsize).expect("ftruncate on memfd");
-    let _count = memfd_file.write(exe_bytes).expect("write exe data to memfd after sizing");
+    let _count = memfd_file
+        .write(exe_bytes)
+        .expect("write exe data to memfd after sizing");
 
     Ok(memfd_file)
 }
 
-pub fn clone_into_namespace(stack: &mut [u8],
-        config_data: IsolateConfigData,
-        new_network: bool) ->
-        (libc::pid_t, libc::id_t) {
-    let flags = libc::CLONE_NEWNS | libc::CLONE_NEWUSER | libc::CLONE_NEWPID | libc::CLONE_NEWIPC | libc::CLONE_NEWUTS  | libc::CLONE_PIDFD;
+pub fn clone_into_namespace(
+    stack: &mut [u8],
+    config_data: IsolateConfigData,
+    new_network: bool,
+) -> (libc::pid_t, libc::id_t) {
+    let flags = libc::CLONE_NEWNS
+        | libc::CLONE_NEWUSER
+        | libc::CLONE_NEWPID
+        | libc::CLONE_NEWIPC
+        | libc::CLONE_NEWUTS
+        | libc::CLONE_PIDFD;
     let flags = if new_network {
         flags | libc::CLONE_NEWNET
-    } else { flags };
+    } else {
+        flags
+    };
 
-    let mut pidfd: libc::pid_t = 0; 
+    let mut pidfd: libc::pid_t = 0;
     // the argument used for pidfd is defined as an i32/pid_t but waitid takes a u32/id_t so we
     // convert on return
     let pidfd_ref: *mut libc::pid_t = &mut pidfd;
@@ -273,19 +325,29 @@ pub fn clone_into_namespace(stack: &mut [u8],
     //let stack_ptr = unsafe { std::mem::transmute::<*mut u8, *mut libc::c_void>(stack.as_mut_ptr().wrapping_add(CHILD_STACK_SIZE)) };
     // The stack grows down, so we need to provide clone a pointer to the end of our stack data
     // vec.
-    let stack_ptr: *mut libc::c_void = stack.as_mut_ptr().wrapping_add(CHILD_STACK_SIZE).cast::<libc::c_void>();
+    let stack_ptr: *mut libc::c_void = stack
+        .as_mut_ptr()
+        .wrapping_add(CHILD_STACK_SIZE)
+        .cast::<libc::c_void>();
 
     let fnptr = run_isolate;
     let data = Box::new(config_data);
     let data_ptr: *mut libc::c_void = Box::into_raw(data).cast::<libc::c_void>();
-    
+
     let pid = unsafe { libc::clone(fnptr, stack_ptr, flags, data_ptr, pidfd_ref) };
     (pid, pidfd.try_into().unwrap())
 }
 
 pub fn wait_for_child(pidfd: libc::id_t) -> i32 {
     let mut child_status: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    let rc = unsafe {libc::waitid(libc::P_PIDFD, pidfd, &mut child_status, libc::__WALL | libc::WEXITED) };
+    let rc = unsafe {
+        libc::waitid(
+            libc::P_PIDFD,
+            pidfd,
+            &mut child_status,
+            libc::__WALL | libc::WEXITED,
+        )
+    };
     fail_negative!(rc, "waitid failed");
     unsafe { child_status.si_status() }
 }

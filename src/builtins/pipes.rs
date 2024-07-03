@@ -1,7 +1,7 @@
 //! Contains a [`RuleSet`] for allowing pipes
 
-use syscalls::Sysno;
 use crate::RuleSet;
+use syscalls::Sysno;
 
 /// [`Pipes`] allows you to create anonymous pipes for inter-process communication via the `pipe`
 /// syscalls.

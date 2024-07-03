@@ -22,10 +22,10 @@ impl Time {
         }
     }
 
-/// On most 64 bit systems glibc and musl both use the
-/// [`vDSO`](https://man7.org/linux/man-pages/man7/vdso.7.html) to compute the time directly with
-/// rdtsc rather than calling the `clock_gettime` syscall, so in most cases you don't need to
-/// actually enable this.
+    /// On most 64 bit systems glibc and musl both use the
+    /// [`vDSO`](https://man7.org/linux/man-pages/man7/vdso.7.html) to compute the time directly with
+    /// rdtsc rather than calling the `clock_gettime` syscall, so in most cases you don't need to
+    /// actually enable this.
     pub fn allow_gettime(mut self) -> Time {
         self.allowed
             .extend([Sysno::clock_gettime, Sysno::clock_getres]);

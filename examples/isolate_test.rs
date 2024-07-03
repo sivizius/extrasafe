@@ -1,16 +1,14 @@
 #![cfg(feature = "isolate")]
+use std::fs::File;
 /// Tests for isolate have to go in examples because tests in the tests/ directory get compiled as
 /// test binaries and have their main fn overridden
-
 // TODO: check unix domain sockets work as expected with isolated network namespace
-
 use std::io::prelude::*;
-use std::os::unix::net::{UnixStream, UnixListener};
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::fs::File;
 
-use std::collections::HashMap;
 use extrasafe::isolate::Isolate;
+use std::collections::HashMap;
 
 fn check_isolate_output(isolate_name: &'static str, data: &[&str], envs: &HashMap<String, String>) {
     let output = Isolate::run(isolate_name, envs).expect("running isolate failed");
@@ -29,41 +27,52 @@ fn check_isolate_output(isolate_name: &'static str, data: &[&str], envs: &HashMa
         let path = path.path();
         // NOTE: this might fail if you ran a test and it failed in a way the temp dir couldn't
         // be cleaned up (e.g. the strace segfault thing)
-        assert!(!path.starts_with(isolate_name), "tmp dir still exists: {:?}", path.display());
+        assert!(
+            !path.starts_with(isolate_name),
+            "tmp dir still exists: {:?}",
+            path.display()
+        );
     }
 
     println!("{} passed", isolate_name);
 }
 
-fn check_isolate_output_fail(isolate_name: &'static str, data: &[&str], envs: &HashMap<String, String>) {
+fn check_isolate_output_fail(
+    isolate_name: &'static str,
+    data: &[&str],
+    envs: &HashMap<String, String>,
+) {
     let output = Isolate::run(isolate_name, envs).expect("running isolate failed");
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let outinfo = format!("\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
 
-    assert!(!output.status.success(), "isolate incorrently exited successfully: {:?}", output.status);
+    assert!(
+        !output.status.success(),
+        "isolate incorrently exited successfully: {:?}",
+        output.status
+    );
     for s in data {
         assert!(stderr.contains(s), "{}", outinfo);
     }
     println!("{} passed", isolate_name);
 }
 
-
 /// Test that running an isolate that assert(false) prints it to stderr and has a nonzero exit
 /// code.
 fn test_isolate_fail() {
-    check_isolate_output_fail("isolate_fail", &["wild panic",], &HashMap::new());
+    check_isolate_output_fail("isolate_fail", &["wild panic"], &HashMap::new());
 }
 
 /// Test that printing hello in the isolate is captured in the parent
 fn test_isolate_hello() {
-    check_isolate_output("isolate_hello", &["hello",], &HashMap::new());
+    check_isolate_output("isolate_hello", &["hello"], &HashMap::new());
 }
 
 /// Test that the isolate's uid is 0
 fn test_isolate_uid() {
-    check_isolate_output("isolate_uid", &["uid: 0",], &HashMap::new());
+    check_isolate_output("isolate_uid", &["uid: 0"], &HashMap::new());
 }
 
 /// Test that we can mount a new proc and the mountinfo is correct
@@ -73,8 +82,14 @@ fn test_check_mountinfo() {
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     assert!(stdout.contains("/ / "), "missing root mount");
-    assert!(!stdout.contains("/tmp"), "tmp from parent namespace visible");
-    assert!(!stdout.contains("/proc_orig"), "proc from parent namespace visible");
+    assert!(
+        !stdout.contains("/tmp"),
+        "tmp from parent namespace visible"
+    );
+    assert!(
+        !stdout.contains("/proc_orig"),
+        "proc from parent namespace visible"
+    );
     assert!(stderr.is_empty(), "stderr: {}", stderr);
     println!("check_mountinfo passed");
 }
@@ -84,15 +99,28 @@ fn test_check_mountinfo() {
 fn test_unix_socket() {
     let tempdir = tempfile::tempdir().unwrap();
     let path = tempdir.path().join("parent.sock");
-    let envs = vec![("ISOLATE_SOCKET_PATH".to_string(), path.display().to_string())].into_iter().collect();
+    let envs = vec![(
+        "ISOLATE_SOCKET_PATH".to_string(),
+        path.display().to_string(),
+    )]
+    .into_iter()
+    .collect();
     let handle = std::thread::spawn(move || {
         let output = Isolate::run("isolate_unix_socket", &envs).expect("running isolate failed");
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        assert!(output.status.success(), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
+        assert!(
+            output.status.success(),
+            "{:?}\nstdout {}\nstderr {}",
+            output.status,
+            stdout,
+            stderr
+        );
     });
 
-    let mut conn = UnixListener::bind(path).unwrap().incoming()
+    let mut conn = UnixListener::bind(path)
+        .unwrap()
+        .incoming()
         .next()
         .unwrap()
         .unwrap();
@@ -116,13 +144,21 @@ fn test_multiple_binds() {
     let envs = vec![
         ("ISOLATE_DIR_1".to_string(), path1.display().to_string()),
         ("ISOLATE_DIR_2".to_string(), path2.display().to_string()),
-    ].into_iter().collect();
+    ]
+    .into_iter()
+    .collect();
 
     // run isolate
     let output = Isolate::run("isolate_multiple_binds", &envs).expect("running isolate failed");
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    assert!(output.status.success(), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
+    assert!(
+        output.status.success(),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
 
     // read back values written inside isolate
     let f1 = std::fs::read_to_string(path1.join("hello")).unwrap();
@@ -137,15 +173,33 @@ fn test_multiple_binds() {
 
 /// Test tmpfs size limit parameter works
 fn test_tmpfs_size_limit() {
-    let output = Isolate::run("isolate_size_limit", &HashMap::new())
-        .expect("running isolate failed");
+    let output =
+        Isolate::run("isolate_size_limit", &HashMap::new()).expect("running isolate failed");
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     // The isolate unwraps a write larger than the size limit for the tmpfs
-    assert!(!output.status.success(), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
-    assert!(stderr.contains("large file failed"), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
-    assert!(stderr.contains("No space left on device"), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
+    assert!(
+        !output.status.success(),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
+    assert!(
+        stderr.contains("large file failed"),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
+    assert!(
+        stderr.contains("No space left on device"),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
 
     println!("isolate_tmpfs_size passed");
 }
@@ -153,24 +207,42 @@ fn test_tmpfs_size_limit() {
 /// Test making a network request succeeds if network is kept
 /// Obviously, this requires that the parent namespace has a working network connection.
 fn test_with_network() {
-    let output = Isolate::run("isolate_with_network", &HashMap::new())
-        .expect("running isolate failed");
+    let output =
+        Isolate::run("isolate_with_network", &HashMap::new()).expect("running isolate failed");
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    assert!(output.status.success(), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
+    assert!(
+        output.status.success(),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
     println!("isolate_with_network passed");
 }
 
 /// Test making a network request does not succeed if new network namespace is created
 fn test_no_network() {
-    let output = Isolate::run("isolate_no_network", &HashMap::new())
-        .expect("running isolate failed");
+    let output =
+        Isolate::run("isolate_no_network", &HashMap::new()).expect("running isolate failed");
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    assert!(!output.status.success(), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
-    assert!(stderr.contains("ConnectError"), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
+    assert!(
+        !output.status.success(),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
+    assert!(
+        stderr.contains("ConnectError"),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
     println!("isolate_no_network passed");
 }
 
@@ -181,11 +253,28 @@ fn test_safetycontext() {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    assert!(output.status.success(), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
-    assert!(stdout.contains("we can print to stdout"), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
-    assert!(stderr.contains("we can print to stderr"), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
+    assert!(
+        output.status.success(),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
+    assert!(
+        stdout.contains("we can print to stdout"),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
+    assert!(
+        stderr.contains("we can print to stderr"),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
     println!("isolate_with_safetycontext passed");
-
 }
 
 /// Test an `Isolate` will not bindmount outside of its root
@@ -196,8 +285,20 @@ fn test_isolate_bad_bindmount() {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    assert!(!output.status.success(), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
-    assert!(stderr.contains("dst directory must not contain .. paths:"), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
+    assert!(
+        !output.status.success(),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
+    assert!(
+        stderr.contains("dst directory must not contain .. paths:"),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
 
     // test ./
     let output = Isolate::run("isolate_bad_bindmount_relative", &HashMap::new())
@@ -205,11 +306,22 @@ fn test_isolate_bad_bindmount() {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    assert!(!output.status.success(), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
-    assert!(stderr.contains("dst directory must not contain . paths:"), "{:?}\nstdout {}\nstderr {}", output.status, stdout, stderr);
+    assert!(
+        !output.status.success(),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
+    assert!(
+        stderr.contains("dst directory must not contain . paths:"),
+        "{:?}\nstdout {}\nstderr {}",
+        output.status,
+        stdout,
+        stderr
+    );
     println!("isolate_bad_bindmount passed");
 }
-
 
 fn isolate_uid(name: &'static str) -> Isolate {
     fn uid() {
@@ -241,11 +353,15 @@ fn check_mountinfo() {
     std::fs::create_dir_all("/proc").unwrap();
     let proc_dircstr = CString::new("/proc").unwrap();
     let proc_cstr = CString::new("proc").unwrap();
-    let rc = unsafe { libc::mount(proc_cstr.as_ptr(),
-                                   proc_dircstr.as_ptr(),
-                                   proc_cstr.as_ptr(),
-                                   0,
-                                   std::ptr::null()) };
+    let rc = unsafe {
+        libc::mount(
+            proc_cstr.as_ptr(),
+            proc_dircstr.as_ptr(),
+            proc_cstr.as_ptr(),
+            0,
+            std::ptr::null(),
+        )
+    };
     assert!(rc >= 0, "failed to mount new proc");
 
     // unmount old proc
@@ -265,16 +381,19 @@ fn isolate_unix_socket(name: &'static str) -> Isolate {
     }
     let path = std::env::var("ISOLATE_SOCKET_PATH").unwrap();
     let path = PathBuf::from(path);
-    Isolate::new(name, unix_hello)
-        .add_bind_mount(path, "/isolate.sock")
+    Isolate::new(name, unix_hello).add_bind_mount(path, "/isolate.sock")
 }
 
 fn isolate_multiple_binds(name: &'static str) -> Isolate {
     fn multiple_binds() {
-        File::create("/path1/hello").unwrap()
-            .write_all(b"abc").unwrap();
-        File::create("/path2/hey").unwrap()
-            .write_all(b"xyz").unwrap();
+        File::create("/path1/hello")
+            .unwrap()
+            .write_all(b"abc")
+            .unwrap();
+        File::create("/path2/hey")
+            .unwrap()
+            .write_all(b"xyz")
+            .unwrap();
     }
 
     let path1 = std::env::var("ISOLATE_DIR_1").unwrap();
@@ -296,13 +415,13 @@ fn isolate_size_limit(name: &'static str) -> Isolate {
         }
 
         // This will fail
-        File::create("/test").unwrap()
+        File::create("/test")
+            .unwrap()
             .write_all(&v)
             .expect("writing large file failed");
     }
 
-    Isolate::new(name, big_write)
-        .set_rootfs_size(1)
+    Isolate::new(name, big_write).set_rootfs_size(1)
 }
 
 // make an https request to example.org and check we can connect
@@ -340,8 +459,7 @@ fn isolate_with_network(name: &'static str) -> Isolate {
 }
 
 fn isolate_no_network(name: &'static str) -> Isolate {
-    Isolate::new(name, network_call)
-        .add_bind_mount("/", "/")
+    Isolate::new(name, network_call).add_bind_mount("/", "/")
 }
 
 fn isolate_bad_bindmount_absolute(name: &'static str) -> Isolate {
@@ -349,8 +467,7 @@ fn isolate_bad_bindmount_absolute(name: &'static str) -> Isolate {
     fn hello() {
         println!("hello");
     }
-    Isolate::new(name, hello)
-        .add_bind_mount("/", "/a/b/../../..")
+    Isolate::new(name, hello).add_bind_mount("/", "/a/b/../../..")
 }
 
 fn isolate_bad_bindmount_relative(name: &'static str) -> Isolate {
@@ -358,26 +475,27 @@ fn isolate_bad_bindmount_relative(name: &'static str) -> Isolate {
     fn hello() {
         println!("hello");
     }
-    Isolate::new(name, hello)
-        .add_bind_mount("/", "./a/")
+    Isolate::new(name, hello).add_bind_mount("/", "./a/")
 }
 
 fn isolate_with_safetycontext(name: &'static str) -> Isolate {
-    use extrasafe::SafetyContext;
     use extrasafe::builtins::*;
+    use extrasafe::SafetyContext;
     fn use_safetycontext() {
         SafetyContext::new()
-            .enable(SystemIO::nothing()
-                .allow_stdout()
-                .allow_stderr()
-            ).unwrap()
+            .enable(SystemIO::nothing().allow_stdout().allow_stderr())
+            .unwrap()
             // can apply to all threads because we're in a separate process
-            .apply_to_all_threads().unwrap();
+            .apply_to_all_threads()
+            .unwrap();
 
-            println!("we can print to stdout!");
-            eprintln!("we can print to stderr!");
+        println!("we can print to stdout!");
+        eprintln!("we can print to stderr!");
 
-            assert!(File::create("test").is_err(), "shouldn't be able to open files");
+        assert!(
+            File::create("test").is_err(),
+            "shouldn't be able to open files"
+        );
     }
 
     Isolate::new(name, use_safetycontext)
@@ -388,8 +506,7 @@ fn main() {
     Isolate::main_hook("isolate_hello", isolate_hello);
     Isolate::main_hook("isolate_uid", isolate_uid);
     Isolate::main_hook("check_mountinfo", |s| {
-        Isolate::new(s, check_mountinfo)
-        .add_bind_mount("/proc", "/orig_proc")
+        Isolate::new(s, check_mountinfo).add_bind_mount("/proc", "/orig_proc")
     });
     Isolate::main_hook("isolate_size_limit", isolate_size_limit);
     Isolate::main_hook("isolate_fail", isolate_fail);
@@ -398,8 +515,14 @@ fn main() {
     Isolate::main_hook("isolate_with_network", isolate_with_network);
     Isolate::main_hook("isolate_no_network", isolate_no_network);
     Isolate::main_hook("isolate_with_safetycontext", isolate_with_safetycontext);
-    Isolate::main_hook("isolate_bad_bindmount_absolute", isolate_bad_bindmount_absolute);
-    Isolate::main_hook("isolate_bad_bindmount_relative", isolate_bad_bindmount_relative);
+    Isolate::main_hook(
+        "isolate_bad_bindmount_absolute",
+        isolate_bad_bindmount_absolute,
+    );
+    Isolate::main_hook(
+        "isolate_bad_bindmount_relative",
+        isolate_bad_bindmount_relative,
+    );
 
     let argv0 = std::env::args().next().unwrap();
     if argv0.contains("isolate_test") {
@@ -422,8 +545,7 @@ fn main() {
         test_tmpfs_size_limit();
         test_isolate_fail();
         test_isolate_bad_bindmount();
-    }
-    else {
+    } else {
         panic!("isolate didn't hit its hook: {}", argv0);
     }
 }
