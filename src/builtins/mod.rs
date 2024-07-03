@@ -164,6 +164,7 @@ pub mod network;
 pub mod pipes;
 pub mod systemio;
 pub mod time;
+pub mod truncate;
 pub mod user_id;
 
 pub use self::{
@@ -172,6 +173,7 @@ pub use self::{
     network::Networking,
     systemio::SystemIO,
     time::Time,
+    truncate::Truncate,
     user_id::UserId,
 };
 
