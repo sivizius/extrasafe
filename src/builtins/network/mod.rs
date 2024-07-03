@@ -1,6 +1,7 @@
 //! Contains a [`RuleSet`] for allowing networking-related syscalls.
 
 pub mod netlink;
+pub mod socket_pair;
 
 use {
     super::YesReally,
@@ -9,7 +10,7 @@ use {
     syscalls::Sysno,
 };
 
-pub use self::netlink::Netlink;
+pub use self::{netlink::Netlink, socket_pair::SocketPair};
 
 // TODO: make bind calls conditional on the DGRAM/UNIX/STREAM flag in each function
 
