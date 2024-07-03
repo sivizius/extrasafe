@@ -159,6 +159,7 @@ macro_rules! allow {
 
 pub mod basic;
 pub mod danger_zone;
+pub mod kill;
 pub mod network;
 pub mod pipes;
 pub mod systemio;
@@ -166,7 +167,12 @@ pub mod time;
 pub mod user_id;
 
 pub use self::{
-    basic::BasicCapabilities, network::Networking, systemio::SystemIO, time::Time, user_id::UserId,
+    basic::BasicCapabilities,
+    kill::Kill,
+    network::Networking,
+    systemio::SystemIO,
+    time::Time,
+    user_id::UserId,
 };
 
 /// A struct whose purpose is to make you read the documentation for the function you're calling.
