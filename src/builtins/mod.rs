@@ -9,8 +9,11 @@ pub mod network;
 pub mod pipes;
 pub mod systemio;
 pub mod time;
+pub mod user_id;
 
-pub use self::{basic::BasicCapabilities, network::Networking, systemio::SystemIO, time::Time};
+pub use self::{
+    basic::BasicCapabilities, network::Networking, systemio::SystemIO, time::Time, user_id::UserId,
+};
 
 /// A struct whose purpose is to make you read the documentation for the function you're calling.
 /// If you're reading this, go read the documentation for the function that is returning this
