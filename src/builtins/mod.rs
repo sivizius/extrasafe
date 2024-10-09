@@ -1,5 +1,8 @@
 //! Built-in [`RuleSet`](crate::RuleSet)s
 
+#[macro_use]
+pub mod allow;
+
 pub mod basic;
 pub mod danger_zone;
 pub mod kill;
