@@ -11,6 +11,7 @@ pub mod pipes;
 pub mod systemio;
 pub mod time;
 pub mod truncate;
+pub mod user_id;
 
 pub use self::{
     basic::BasicCapabilities,
@@ -19,6 +20,7 @@ pub use self::{
     systemio::SystemIO,
     time::Time,
     truncate::Truncate,
+    user_id::UserId,
 };
 
 /// A struct whose purpose is to make you read the documentation for the function you're calling.
