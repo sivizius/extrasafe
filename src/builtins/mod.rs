@@ -2,6 +2,7 @@
 
 pub mod basic;
 pub mod danger_zone;
+pub mod kill;
 pub mod network;
 pub mod pipes;
 pub mod systemio;
@@ -9,6 +10,7 @@ pub mod time;
 
 pub use self::{
     basic::BasicCapabilities,
+    kill::Kill,
     network::{Networking, Netlink, SocketPair},
     systemio::SystemIO,
     time::Time,
