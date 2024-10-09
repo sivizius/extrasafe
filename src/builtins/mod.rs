@@ -7,6 +7,7 @@ pub mod network;
 pub mod pipes;
 pub mod systemio;
 pub mod time;
+pub mod truncate;
 
 pub use self::{
     basic::BasicCapabilities,
@@ -14,6 +15,7 @@ pub use self::{
     network::{Networking, Netlink, SocketPair},
     systemio::SystemIO,
     time::Time,
+    truncate::Truncate,
 };
 
 /// A struct whose purpose is to make you read the documentation for the function you're calling.
