@@ -1,6 +1,7 @@
 [workspace]
 members = [
-  "extrasafe"
+  "extrasafe",
+  "extrasafe_rulesets"
 ]
 resolver = "2"
 
@@ -29,6 +30,9 @@ rusqlite = "^0.32"
 tempfile = "^3"
 tokio = "^1.15"
 warp = "^0.3"
+
+[workspace.dependencies.extrasafe]
+path = "./extrasafe"
 
 [workspace.dependencies.hyper]
 version = "^0.14"

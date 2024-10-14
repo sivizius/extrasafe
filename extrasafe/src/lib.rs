@@ -33,10 +33,14 @@ pub use syscalls;
 pub mod error;
 pub use error::*;
 
+pub mod basic_ruleset;
+pub use basic_ruleset::BasicRuleset;
+
+pub mod yes_really;
+pub use yes_really::YesReally;
+
 #[macro_use]
 pub mod macros;
-
-pub mod builtins;
 
 #[cfg(feature = "landlock")]
 mod landlock;
@@ -439,7 +443,7 @@ impl SafetyContext {
     /// May return an [`ExtraSafeError`].
     ///
     /// If no rulesets are enabled, returns an `ExtraSafeError::NoRulesEnabled` error. If you
-    /// really want to enable "nothing", try enabling the `builtins::BasicCapabilities` default
+    /// really want to enable "nothing", try enabling the `BasicRuleset` default
     /// ruleset manually, or create your own with e.g. just the `exit` syscall.
     pub fn apply_to_current_thread(mut self) -> Result<(), ExtraSafeError> {
         self.all_threads = false;
@@ -458,7 +462,7 @@ impl SafetyContext {
     /// May return an [`ExtraSafeError`].
     ///
     /// If no rulesets are enabled, returns an `ExtraSafeError::NoRulesEnabled` error. If you
-    /// really want to enable "nothing", try enabling the `builtins::BasicCapabilities` default
+    /// really want to enable "nothing", try enabling the `BasicRuleset` default
     /// ruleset manually, or create your own with e.g. just the `exit` syscall.
     pub fn apply_to_all_threads(mut self) -> Result<(), ExtraSafeError> {
         #[cfg(feature = "landlock")]
@@ -478,7 +482,7 @@ impl SafetyContext {
     /// `SafetyContext` with your seccomp rules.
     ///
     /// If no rulesets are enabled, returns an `ExtraSafeError::NoRulesEnabled` error. If you
-    /// really want to enable "nothing", try enabling the `builtins::BasicCapabilities` default
+    /// really want to enable "nothing", try enabling the `BasicRuleset` default
     /// ruleset manually, or create your own with e.g. just the `exit` syscall.
     fn apply(mut self) -> Result<(), ExtraSafeError> {
         #[cfg(feature = "landlock")]
@@ -490,7 +494,7 @@ impl SafetyContext {
             return Err(ExtraSafeError::NoRulesEnabled);
         }
 
-        self = self.enable(builtins::BasicCapabilities)?;
+        self = self.enable(BasicRuleset)?;
 
         #[cfg(feature = "landlock")]
         if self.only_landlock {
